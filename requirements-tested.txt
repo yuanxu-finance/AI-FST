@@ -1,0 +1,8 @@
+# Versions used for the release checks; Python 3.10.
+# The local torch build was 2.1.1+cu118. Choose the matching CPU/CUDA wheel.
+torch==2.1.1
+numpy==1.26.4
+pandas==2.3.3
+scipy==1.15.3
+scikit-learn==1.7.2
+ripser==0.6.14

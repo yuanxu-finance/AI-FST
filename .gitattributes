@@ -1,0 +1,7 @@
+* text=auto
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.txt text eol=lf
+# Preserve input snapshot bytes and manifest checksums on every platform.
+*.csv -text
