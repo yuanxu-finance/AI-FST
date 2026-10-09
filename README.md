@@ -93,6 +93,6 @@ outputs/<dataset>/
 └── predictions.csv       # BTC track
 ```
 
-The BTC track additionally reports direction accuracy, QLIKE, RV-scale SMAPE, and Pearson correlation. The original daily runner does not export per-timestamp predictions or model checkpoints. Results retain legacy model identifiers from the research runners.
+The BTC track additionally reports direction accuracy, QLIKE, RV-scale SMAPE, and Pearson correlation. The daily runner does not export per-timestamp predictions or model checkpoints. Result files identify the model as EXACT.
 
 This repository provides the full EXACT pipeline and eight input datasets. Baseline and ablation implementations are not included. Execution checks do not constitute reproduction of all manuscript results.

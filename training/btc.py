@@ -1,4 +1,3 @@
-import copy
 import math
 import os
 import random
@@ -10,7 +9,6 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, TensorDataset
@@ -18,7 +16,9 @@ from torch.utils.data import DataLoader, TensorDataset
 try:
     import ripser
 except ImportError as exc:
-    raise ImportError("Missing dependency: 'ripser'. Install via 'pip install ripser'.") from exc
+    raise ImportError(
+        "Missing dependency: 'ripser'. Install via 'pip install ripser'."
+    ) from exc
 
 
 OUTPUT_DIR = str(Path(__file__).resolve().parents[1] / "outputs")
@@ -115,7 +115,11 @@ def create_sequences(data, index_values, seq_len, stride):
         xs.append(data[i : i + seq_len])
         ys.append(data[i + seq_len, 0])
         ts.append(index_values[i + seq_len])
-    return np.asarray(xs, dtype=np.float32), np.asarray(ys, dtype=np.float32), np.asarray(ts)
+    return (
+        np.asarray(xs, dtype=np.float32),
+        np.asarray(ys, dtype=np.float32),
+        np.asarray(ts),
+    )
 
 
 def encode_timestamp_cyclical(ts):
@@ -141,7 +145,9 @@ def create_time_features(index_like, seq_len, stride):
     return np.asarray(feats, dtype=np.float32)
 
 
-def compute_topo_features(x_array, d=TOPO_D, tau=TOPO_TAU, bins=TOPO_BINS, max_r=TOPO_MAX_R):
+def compute_topo_features(
+    x_array, d=TOPO_D, tau=TOPO_TAU, bins=TOPO_BINS, max_r=TOPO_MAX_R
+):
     r_vals = np.linspace(0.0, max_r, bins)
     out_dim = bins * 2
     topo_features = np.zeros((len(x_array), out_dim), dtype=np.float32)
@@ -152,7 +158,9 @@ def compute_topo_features(x_array, d=TOPO_D, tau=TOPO_TAU, bins=TOPO_BINS, max_r
         if n_pts <= 0:
             continue
 
-        point_cloud = np.array([series[j : j + d * tau : tau] for j in range(n_pts)], dtype=np.float64)
+        point_cloud = np.array(
+            [series[j : j + d * tau : tau] for j in range(n_pts)], dtype=np.float64
+        )
         try:
             dgms = ripser.ripser(point_cloud, maxdim=1)["dgms"]
             h0, h1 = dgms[0], dgms[1]
@@ -161,7 +169,9 @@ def compute_topo_features(x_array, d=TOPO_D, tau=TOPO_TAU, bins=TOPO_BINS, max_r
             betti1 = np.zeros(bins, dtype=np.float64)
             for b_idx, r in enumerate(r_vals):
                 if len(h0_finite) > 0:
-                    betti0[b_idx] = np.sum((h0_finite[:, 0] <= r) & (h0_finite[:, 1] > r)) / n_pts
+                    betti0[b_idx] = (
+                        np.sum((h0_finite[:, 0] <= r) & (h0_finite[:, 1] > r)) / n_pts
+                    )
                 if len(h1) > 0:
                     betti1[b_idx] = np.sum((h1[:, 0] <= r) & (h1[:, 1] > r)) / n_pts
             topo_features[idx] = np.concatenate([betti0, betti1]).astype(np.float32)
@@ -218,22 +228,36 @@ def vmd_decompose_1d(signal, alpha, tau, k_modes, tol, max_iter):
     sum_uk = np.zeros(t_len, dtype=np.complex128)
 
     while u_diff > tol and iteration < max_iter - 1:
-        sum_uk = u_hat_plus[iteration, :, k_modes - 1] + sum_uk - u_hat_plus[iteration, :, 0]
+        sum_uk = (
+            u_hat_plus[iteration, :, k_modes - 1] + sum_uk - u_hat_plus[iteration, :, 0]
+        )
         denom = 1.0 + alpha * (freqs - omega_plus[iteration, 0]) ** 2
-        u_hat_plus[iteration + 1, :, 0] = (f_hat_plus - sum_uk - lambda_hat[iteration, :] / 2.0) / denom
+        u_hat_plus[iteration + 1, :, 0] = (
+            f_hat_plus - sum_uk - lambda_hat[iteration, :] / 2.0
+        ) / denom
 
         power0 = np.abs(u_hat_plus[iteration + 1, t_len // 2 :, 0]) ** 2
         if power0.sum() > 1e-12:
-            omega_plus[iteration + 1, 0] = np.dot(freqs[t_len // 2 :], power0) / power0.sum()
+            omega_plus[iteration + 1, 0] = (
+                np.dot(freqs[t_len // 2 :], power0) / power0.sum()
+            )
 
         for k in range(1, k_modes):
-            sum_uk = u_hat_plus[iteration + 1, :, k - 1] + sum_uk - u_hat_plus[iteration, :, k]
+            sum_uk = (
+                u_hat_plus[iteration + 1, :, k - 1]
+                + sum_uk
+                - u_hat_plus[iteration, :, k]
+            )
             denom = 1.0 + alpha * (freqs - omega_plus[iteration, k]) ** 2
-            u_hat_plus[iteration + 1, :, k] = (f_hat_plus - sum_uk - lambda_hat[iteration, :] / 2.0) / denom
+            u_hat_plus[iteration + 1, :, k] = (
+                f_hat_plus - sum_uk - lambda_hat[iteration, :] / 2.0
+            ) / denom
 
             powerk = np.abs(u_hat_plus[iteration + 1, t_len // 2 :, k]) ** 2
             if powerk.sum() > 1e-12:
-                omega_plus[iteration + 1, k] = np.dot(freqs[t_len // 2 :], powerk) / powerk.sum()
+                omega_plus[iteration + 1, k] = (
+                    np.dot(freqs[t_len // 2 :], powerk) / powerk.sum()
+                )
 
         lambda_hat[iteration + 1, :] = lambda_hat[iteration, :] + tau * (
             np.sum(u_hat_plus[iteration + 1, :, :], axis=1) - f_hat_plus
@@ -284,7 +308,10 @@ def build_three_step_targets(x_seq):
         )
 
         entropies = np.asarray(
-            [permutation_entropy(mode, order=PE_ORDER, delay=PE_DELAY) for mode in modes],
+            [
+                permutation_entropy(mode, order=PE_ORDER, delay=PE_DELAY)
+                for mode in modes
+            ],
             dtype=np.float64,
         )
         keep_mask = entropies <= PE_THRESHOLD
@@ -328,7 +355,9 @@ def build_three_step_targets(x_seq):
         persistent_targets[idx] = persistent
         highfreq_targets[idx] = highfreq
         noise_targets[idx] = noise
-        state_features[idx] = np.asarray([raw_volatility, raw_entropy], dtype=np.float32)
+        state_features[idx] = np.asarray(
+            [raw_volatility, raw_entropy], dtype=np.float32
+        )
         kept_counts.append(int(keep_mask.sum()))
         persistent_counts.append(int(persistent_mask.sum()))
 
@@ -336,23 +365,14 @@ def build_three_step_targets(x_seq):
         "avg_kept_imfs": float(np.mean(kept_counts)),
         "avg_persistent_imfs": float(np.mean(persistent_counts)),
     }
-    return reco_targets, persistent_targets, highfreq_targets, noise_targets, state_features, stats
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    return (
+        reco_targets,
+        persistent_targets,
+        highfreq_targets,
+        noise_targets,
+        state_features,
+        stats,
+    )
 
 
 def inverse_target(scaler, values):
@@ -378,7 +398,10 @@ def calculate_metrics(true_scaled, pred_scaled, last_input_scaled, scaler):
     mae = mean_absolute_error(true_log_rv, pred_log_rv)
     r2 = r2_score(true_log_rv, pred_log_rv)
     mask = np.abs(true_log_rv) > 1e-8
-    mape = np.mean(np.abs((true_log_rv[mask] - pred_log_rv[mask]) / true_log_rv[mask])) * 100.0
+    mape = (
+        np.mean(np.abs((true_log_rv[mask] - pred_log_rv[mask]) / true_log_rv[mask]))
+        * 100.0
+    )
 
     true_dir = np.sign(true_log_rv - last_log_rv)
     pred_dir = np.sign(pred_log_rv - last_log_rv)
@@ -387,7 +410,13 @@ def calculate_metrics(true_scaled, pred_scaled, last_input_scaled, scaler):
     eps = 1e-12
     ratio = true_rv / np.maximum(pred_rv, eps)
     qlike = float(np.mean(ratio - np.log(ratio + eps) - 1.0))
-    smape_rv = float(np.mean(200.0 * np.abs(pred_rv - true_rv) / (np.abs(true_rv) + np.abs(pred_rv) + eps)))
+    smape_rv = float(
+        np.mean(
+            200.0
+            * np.abs(pred_rv - true_rv)
+            / (np.abs(true_rv) + np.abs(pred_rv) + eps)
+        )
+    )
     pearson_r = safe_pearsonr(true_log_rv, pred_log_rv)
 
     prediction_df = pd.DataFrame(
@@ -415,7 +444,20 @@ def calculate_metrics(true_scaled, pred_scaled, last_input_scaled, scaler):
     }, prediction_df
 
 
-def train_how123(spec, x_train, y_train, t_train, x_val, y_val, t_val, x_test, y_test, t_test, test_ts, scaler):
+def train_exact(
+    spec,
+    x_train,
+    y_train,
+    t_train,
+    x_val,
+    y_val,
+    t_val,
+    x_test,
+    y_test,
+    t_test,
+    test_ts,
+    scaler,
+):
     topo_train = compute_topo_features(x_train)
     topo_val = compute_topo_features(x_val)
     topo_test = compute_topo_features(x_test)
@@ -424,7 +466,14 @@ def train_how123(spec, x_train, y_train, t_train, x_val, y_val, t_val, x_test, y
     val_targets = build_three_step_targets(x_val)
     test_targets = build_three_step_targets(x_test)
 
-    reco_train, persistent_train, highfreq_train, noise_train, state_train, train_stats = train_targets
+    (
+        reco_train,
+        persistent_train,
+        highfreq_train,
+        noise_train,
+        state_train,
+        train_stats,
+    ) = train_targets
     reco_val, persistent_val, highfreq_val, noise_val, state_val, _ = val_targets
     _, persistent_test, _, _, state_test, _ = test_targets
 
@@ -469,9 +518,15 @@ def train_how123(spec, x_train, y_train, t_train, x_val, y_val, t_val, x_test, y
     )
 
     model = EXACT(
-        channels=2, d_model=D_MODEL, seq_len=SEQ_LEN, nhead=NHEAD,
-        num_layers=NUM_LAYERS, dropout=DROPOUT, topo_bins=TOPO_BINS,
-        topo_emb_dim=TOPO_EMB_DIM, router_dropout=DROPOUT
+        channels=2,
+        d_model=D_MODEL,
+        seq_len=SEQ_LEN,
+        nhead=NHEAD,
+        num_layers=NUM_LAYERS,
+        dropout=DROPOUT,
+        topo_bins=TOPO_BINS,
+        topo_emb_dim=TOPO_EMB_DIM,
+        router_dropout=DROPOUT,
     ).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
     mse_loss = nn.MSELoss()
@@ -485,7 +540,18 @@ def train_how123(spec, x_train, y_train, t_train, x_val, y_val, t_val, x_test, y
     for epoch in range(EPOCHS):
         model.train()
         train_loss = 0.0
-        for raw_x, persistent_x, topo_x, state_x, time_x, y_batch, reco_batch, persistent_batch, highfreq_batch, noise_batch in train_loader:
+        for (
+            raw_x,
+            persistent_x,
+            topo_x,
+            state_x,
+            time_x,
+            y_batch,
+            reco_batch,
+            persistent_batch,
+            highfreq_batch,
+            noise_batch,
+        ) in train_loader:
             raw_x = raw_x.to(device)
             persistent_x = persistent_x.to(device)
             topo_x = topo_x.to(device)
@@ -498,7 +564,9 @@ def train_how123(spec, x_train, y_train, t_train, x_val, y_val, t_val, x_test, y
             noise_batch = noise_batch.to(device)
 
             optimizer.zero_grad()
-            pred, gate, reco_hat, persistent_hat, highfreq_hat, noise_hat, topo_pred = model(raw_x, persistent_x, topo_x, state_x, time_x)
+            pred, gate, reco_hat, persistent_hat, highfreq_hat, noise_hat, topo_pred = (
+                model(raw_x, persistent_x, topo_x, state_x, time_x)
+            )
             loss_pred = mse_loss(pred, y_batch)
             loss_reco = mse_loss(reco_hat, reco_batch)
             loss_persistent = mse_loss(persistent_hat, persistent_batch)
@@ -523,7 +591,18 @@ def train_how123(spec, x_train, y_train, t_train, x_val, y_val, t_val, x_test, y
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
-            for raw_x, persistent_x, topo_x, state_x, time_x, y_batch, reco_batch, persistent_batch, highfreq_batch, noise_batch in val_loader:
+            for (
+                raw_x,
+                persistent_x,
+                topo_x,
+                state_x,
+                time_x,
+                y_batch,
+                reco_batch,
+                persistent_batch,
+                highfreq_batch,
+                noise_batch,
+            ) in val_loader:
                 raw_x = raw_x.to(device)
                 persistent_x = persistent_x.to(device)
                 topo_x = topo_x.to(device)
@@ -534,7 +613,15 @@ def train_how123(spec, x_train, y_train, t_train, x_val, y_val, t_val, x_test, y
                 persistent_batch = persistent_batch.to(device)
                 highfreq_batch = highfreq_batch.to(device)
                 noise_batch = noise_batch.to(device)
-                pred, gate, reco_hat, persistent_hat, highfreq_hat, noise_hat, topo_pred = model(raw_x, persistent_x, topo_x, state_x, time_x)
+                (
+                    pred,
+                    gate,
+                    reco_hat,
+                    persistent_hat,
+                    highfreq_hat,
+                    noise_hat,
+                    topo_pred,
+                ) = model(raw_x, persistent_x, topo_x, state_x, time_x)
                 val_loss += (
                     mse_loss(pred, y_batch)
                     + RECO_WEIGHT * mse_loss(reco_hat, reco_batch)
@@ -555,12 +642,16 @@ def train_how123(spec, x_train, y_train, t_train, x_val, y_val, t_val, x_test, y
                 "Val_Loss": val_loss,
             }
         )
-        print(f"{spec.name} | Epoch {epoch + 1:02d} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
+        print(
+            f"{spec.name} | Epoch {epoch + 1:02d} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}"
+        )
 
         if val_loss < best_val - 1e-6:
             best_val = val_loss
             best_epoch = epoch + 1
-            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+            best_state = {
+                k: v.detach().cpu().clone() for k, v in model.state_dict().items()
+            }
             wait = 0
         else:
             wait += 1
@@ -594,7 +685,7 @@ def train_how123(spec, x_train, y_train, t_train, x_val, y_val, t_val, x_test, y
 
     summary_row = {"Dataset": spec.name}
     summary_row.update(metrics)
-    summary_row["Model"] = "TDC"
+    summary_row["Model"] = "EXACT"
     summary_row["Router_Fine"] = avg_gate
     summary_row["Router_Coarse"] = 1.0 - avg_gate
     summary_row["Best_Epoch"] = best_epoch
@@ -613,8 +704,12 @@ def run_dataset(spec):
     train_scaled = scaler.fit_transform(train_raw).astype(np.float32)
     test_scaled = scaler.transform(test_raw).astype(np.float32)
 
-    x_train_full, y_train_full, t_train_full_ts = create_sequences(train_scaled, train_raw.index, SEQ_LEN, stride=SEQ_STRIDE)
-    x_test, y_test, t_test_ts = create_sequences(test_scaled, test_raw.index, SEQ_LEN, stride=SEQ_STRIDE)
+    x_train_full, y_train_full, t_train_full_ts = create_sequences(
+        train_scaled, train_raw.index, SEQ_LEN, stride=SEQ_STRIDE
+    )
+    x_test, y_test, t_test_ts = create_sequences(
+        test_scaled, test_raw.index, SEQ_LEN, stride=SEQ_STRIDE
+    )
     t_train_full = create_time_features(train_raw.index, SEQ_LEN, stride=SEQ_STRIDE)
     t_test = create_time_features(test_raw.index, SEQ_LEN, stride=SEQ_STRIDE)
 
@@ -623,7 +718,7 @@ def run_dataset(spec):
     y_train, y_val = y_train_full[:-val_size], y_train_full[-val_size:]
     t_train, t_val = t_train_full[:-val_size], t_train_full[-val_size:]
 
-    summary_row, history_rows, prediction_df = train_how123(
+    summary_row, history_rows, prediction_df = train_exact(
         spec,
         x_train,
         y_train,

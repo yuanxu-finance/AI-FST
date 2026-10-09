@@ -1,4 +1,3 @@
-import copy
 import math
 import os
 import random
@@ -10,7 +9,6 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, TensorDataset
@@ -18,7 +16,9 @@ from torch.utils.data import DataLoader, TensorDataset
 try:
     import ripser
 except ImportError as exc:
-    raise ImportError("Missing dependency: 'ripser'. Install via 'pip install ripser'.") from exc
+    raise ImportError(
+        "Missing dependency: 'ripser'. Install via 'pip install ripser'."
+    ) from exc
 
 
 OUTPUT_DIR = str(Path(__file__).resolve().parents[1] / "outputs")
@@ -56,7 +56,6 @@ LR = 1e-4
 WEIGHT_DECAY = 1e-4
 GRAD_CLIP = 1.0
 
-# Realized-volatility protocol constants (Fairness_Audit_AllMethods_2026-04-08_v6).
 # Daily stock/index: 7-day rolling window, 252 trading-day annualization.
 ROLLING_WINDOW = 7
 ANNUALIZATION = 252.0
@@ -121,7 +120,7 @@ TUNABLE_HYPERPARAMS = (
 BASE_HYPERPARAMS = {name: globals()[name] for name in TUNABLE_HYPERPARAMS}
 
 DATASET_HYPERPARAM_PROFILES = {
-    "AAPL": ("base_v6b", {}),
+    "AAPL": ("default", {}),
     "Amazon": (
         "lr2e4_drop005_auxlow",
         {
@@ -189,7 +188,9 @@ def apply_hyperparams_for_dataset(dataset_name):
     for key, value in BASE_HYPERPARAMS.items():
         globals()[key] = value
 
-    profile_name, overrides = DATASET_HYPERPARAM_PROFILES.get(dataset_name, ("base_v6b", {}))
+    profile_name, overrides = DATASET_HYPERPARAM_PROFILES.get(
+        dataset_name, ("default", {})
+    )
     for key, value in overrides.items():
         globals()[key] = value
     return profile_name
@@ -213,7 +214,9 @@ def load_and_process_data(spec: DatasetSpec):
         df["Date"] = pd.to_datetime(df["Date"])
         df.set_index("Date", inplace=True)
     else:
-        raise ValueError(f"{spec.name}: this stock/index script expects a daily dataset with a Date column.")
+        raise ValueError(
+            f"{spec.name}: this stock/index script expects a daily dataset with a Date column."
+        )
 
     close_col = "Close" if "Close" in df.columns else "close"
     df["log_ret"] = np.log(df[close_col] / df[close_col].shift(1))
@@ -231,7 +234,11 @@ def create_sequences(data, index_values, seq_len, stride=1):
         xs.append(data[i : i + seq_len])
         ys.append(data[i + seq_len, 0])
         ts.append(index_values[i + seq_len])
-    return np.asarray(xs, dtype=np.float32), np.asarray(ys, dtype=np.float32), np.asarray(ts)
+    return (
+        np.asarray(xs, dtype=np.float32),
+        np.asarray(ys, dtype=np.float32),
+        np.asarray(ts),
+    )
 
 
 def encode_daily_cyclical(ts):
@@ -268,7 +275,9 @@ def compute_topo_features(x_array, d=3, tau=1, bins=15, max_r=2.0):
         if n_pts <= 0:
             continue
 
-        point_cloud = np.array([series[j : j + d * tau : tau] for j in range(n_pts)], dtype=np.float64)
+        point_cloud = np.array(
+            [series[j : j + d * tau : tau] for j in range(n_pts)], dtype=np.float64
+        )
         try:
             dgms = ripser.ripser(point_cloud, maxdim=1)["dgms"]
             h0, h1 = dgms[0], dgms[1]
@@ -277,7 +286,9 @@ def compute_topo_features(x_array, d=3, tau=1, bins=15, max_r=2.0):
             betti1 = np.zeros(bins, dtype=np.float64)
             for b_idx, r in enumerate(r_vals):
                 if len(h0_finite) > 0:
-                    betti0[b_idx] = np.sum((h0_finite[:, 0] <= r) & (h0_finite[:, 1] > r)) / n_pts
+                    betti0[b_idx] = (
+                        np.sum((h0_finite[:, 0] <= r) & (h0_finite[:, 1] > r)) / n_pts
+                    )
                 if len(h1) > 0:
                     betti1[b_idx] = np.sum((h1[:, 0] <= r) & (h1[:, 1] > r)) / n_pts
             topo_features[idx] = np.concatenate([betti0, betti1]).astype(np.float32)
@@ -334,22 +345,36 @@ def vmd_decompose_1d(signal, alpha, tau, k_modes, tol, max_iter):
     sum_uk = np.zeros(t_len, dtype=np.complex128)
 
     while u_diff > tol and iteration < max_iter - 1:
-        sum_uk = u_hat_plus[iteration, :, k_modes - 1] + sum_uk - u_hat_plus[iteration, :, 0]
+        sum_uk = (
+            u_hat_plus[iteration, :, k_modes - 1] + sum_uk - u_hat_plus[iteration, :, 0]
+        )
         denom = 1.0 + alpha * (freqs - omega_plus[iteration, 0]) ** 2
-        u_hat_plus[iteration + 1, :, 0] = (f_hat_plus - sum_uk - lambda_hat[iteration, :] / 2.0) / denom
+        u_hat_plus[iteration + 1, :, 0] = (
+            f_hat_plus - sum_uk - lambda_hat[iteration, :] / 2.0
+        ) / denom
 
         power0 = np.abs(u_hat_plus[iteration + 1, t_len // 2 :, 0]) ** 2
         if power0.sum() > 1e-12:
-            omega_plus[iteration + 1, 0] = np.dot(freqs[t_len // 2 :], power0) / power0.sum()
+            omega_plus[iteration + 1, 0] = (
+                np.dot(freqs[t_len // 2 :], power0) / power0.sum()
+            )
 
         for k in range(1, k_modes):
-            sum_uk = u_hat_plus[iteration + 1, :, k - 1] + sum_uk - u_hat_plus[iteration, :, k]
+            sum_uk = (
+                u_hat_plus[iteration + 1, :, k - 1]
+                + sum_uk
+                - u_hat_plus[iteration, :, k]
+            )
             denom = 1.0 + alpha * (freqs - omega_plus[iteration, k]) ** 2
-            u_hat_plus[iteration + 1, :, k] = (f_hat_plus - sum_uk - lambda_hat[iteration, :] / 2.0) / denom
+            u_hat_plus[iteration + 1, :, k] = (
+                f_hat_plus - sum_uk - lambda_hat[iteration, :] / 2.0
+            ) / denom
 
             powerk = np.abs(u_hat_plus[iteration + 1, t_len // 2 :, k]) ** 2
             if powerk.sum() > 1e-12:
-                omega_plus[iteration + 1, k] = np.dot(freqs[t_len // 2 :], powerk) / powerk.sum()
+                omega_plus[iteration + 1, k] = (
+                    np.dot(freqs[t_len // 2 :], powerk) / powerk.sum()
+                )
 
         lambda_hat[iteration + 1, :] = lambda_hat[iteration, :] + tau * (
             np.sum(u_hat_plus[iteration + 1, :, :], axis=1) - f_hat_plus
@@ -397,7 +422,10 @@ def build_three_step_targets(x_seq):
             max_iter=VMD_MAX_ITER,
         )
         entropies = np.asarray(
-            [permutation_entropy(mode, order=PE_ORDER, delay=PE_DELAY) for mode in modes],
+            [
+                permutation_entropy(mode, order=PE_ORDER, delay=PE_DELAY)
+                for mode in modes
+            ],
             dtype=np.float64,
         )
         keep_mask = entropies <= PE_THRESHOLD
@@ -441,7 +469,9 @@ def build_three_step_targets(x_seq):
         persistent_targets[idx] = persistent
         highfreq_targets[idx] = highfreq
         noise_targets[idx] = noise
-        state_features[idx] = np.asarray([raw_volatility, raw_entropy], dtype=np.float32)
+        state_features[idx] = np.asarray(
+            [raw_volatility, raw_entropy], dtype=np.float32
+        )
         kept_counts.append(int(keep_mask.sum()))
         persistent_counts.append(int(persistent_mask.sum()))
 
@@ -449,27 +479,14 @@ def build_three_step_targets(x_seq):
         "avg_kept_imfs": float(np.mean(kept_counts)),
         "avg_persistent_imfs": float(np.mean(persistent_counts)),
     }
-    return reco_targets, persistent_targets, highfreq_targets, noise_targets, state_features, stats
-
-
-# Fixed white-box Transformer backbone
-
-
-
-
-
-
-
-
-
-
-
-
-# ---------------------------------------------------------------------------
-# Enhanced HOW3 fusion mechanism: element-wise gating with topo-informed routing
-# ---------------------------------------------------------------------------
-
-
+    return (
+        reco_targets,
+        persistent_targets,
+        highfreq_targets,
+        noise_targets,
+        state_features,
+        stats,
+    )
 
 
 def calculate_metrics(y_true, y_pred):
@@ -482,16 +499,31 @@ def calculate_metrics(y_true, y_pred):
     return mse, rmse, mae, r2, mape
 
 
-def train_how123(spec, x_train, y_train, t_train, x_val, y_val, t_val, x_test, y_test, t_test, scaler):
-    topo_train = compute_topo_features(x_train, d=TOPO_D, tau=TOPO_TAU, bins=TOPO_BINS, max_r=TOPO_MAX_R)
-    topo_val = compute_topo_features(x_val, d=TOPO_D, tau=TOPO_TAU, bins=TOPO_BINS, max_r=TOPO_MAX_R)
-    topo_test = compute_topo_features(x_test, d=TOPO_D, tau=TOPO_TAU, bins=TOPO_BINS, max_r=TOPO_MAX_R)
+def train_exact(
+    spec, x_train, y_train, t_train, x_val, y_val, t_val, x_test, y_test, t_test, scaler
+):
+    topo_train = compute_topo_features(
+        x_train, d=TOPO_D, tau=TOPO_TAU, bins=TOPO_BINS, max_r=TOPO_MAX_R
+    )
+    topo_val = compute_topo_features(
+        x_val, d=TOPO_D, tau=TOPO_TAU, bins=TOPO_BINS, max_r=TOPO_MAX_R
+    )
+    topo_test = compute_topo_features(
+        x_test, d=TOPO_D, tau=TOPO_TAU, bins=TOPO_BINS, max_r=TOPO_MAX_R
+    )
 
     train_targets = build_three_step_targets(x_train)
     val_targets = build_three_step_targets(x_val)
     test_targets = build_three_step_targets(x_test)
 
-    reco_train, persistent_train, highfreq_train, noise_train, state_train, train_stats = train_targets
+    (
+        reco_train,
+        persistent_train,
+        highfreq_train,
+        noise_train,
+        state_train,
+        train_stats,
+    ) = train_targets
     reco_val, persistent_val, highfreq_val, noise_val, state_val, _ = val_targets
     _, persistent_test, _, _, state_test, _ = test_targets
 
@@ -536,9 +568,15 @@ def train_how123(spec, x_train, y_train, t_train, x_val, y_val, t_val, x_test, y
     )
 
     model = EXACT(
-        channels=2, d_model=D_MODEL, seq_len=SEQ_LEN, nhead=NHEAD,
-        num_layers=NUM_LAYERS, dropout=DROPOUT, topo_bins=TOPO_BINS,
-        topo_emb_dim=TOPO_EMB_DIM, router_dropout=0.1
+        channels=2,
+        d_model=D_MODEL,
+        seq_len=SEQ_LEN,
+        nhead=NHEAD,
+        num_layers=NUM_LAYERS,
+        dropout=DROPOUT,
+        topo_bins=TOPO_BINS,
+        topo_emb_dim=TOPO_EMB_DIM,
+        router_dropout=0.1,
     ).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
     mse_loss = nn.MSELoss()
@@ -552,7 +590,18 @@ def train_how123(spec, x_train, y_train, t_train, x_val, y_val, t_val, x_test, y
     for epoch in range(EPOCHS):
         model.train()
         train_loss = 0.0
-        for raw_x, persistent_x, topo_batch, state_batch, time_batch, y_batch, reco_batch, persistent_batch, highfreq_batch, noise_batch in train_loader:
+        for (
+            raw_x,
+            persistent_x,
+            topo_batch,
+            state_batch,
+            time_batch,
+            y_batch,
+            reco_batch,
+            persistent_batch,
+            highfreq_batch,
+            noise_batch,
+        ) in train_loader:
             raw_x = raw_x.to(device)
             persistent_x = persistent_x.to(device)
             topo_batch = topo_batch.to(device)
@@ -565,8 +614,8 @@ def train_how123(spec, x_train, y_train, t_train, x_val, y_val, t_val, x_test, y
             noise_batch = noise_batch.to(device)
 
             optimizer.zero_grad()
-            pred, gate, reco_hat, persistent_hat, highfreq_hat, noise_hat, topo_pred = model(
-                raw_x, persistent_x, topo_batch, state_batch, time_batch
+            pred, gate, reco_hat, persistent_hat, highfreq_hat, noise_hat, topo_pred = (
+                model(raw_x, persistent_x, topo_batch, state_batch, time_batch)
             )
             loss_pred = mse_loss(pred, y_batch)
             loss_reco = mse_loss(reco_hat, reco_batch)
@@ -592,7 +641,18 @@ def train_how123(spec, x_train, y_train, t_train, x_val, y_val, t_val, x_test, y
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
-            for raw_x, persistent_x, topo_batch, state_batch, time_batch, y_batch, reco_batch, persistent_batch, highfreq_batch, noise_batch in val_loader:
+            for (
+                raw_x,
+                persistent_x,
+                topo_batch,
+                state_batch,
+                time_batch,
+                y_batch,
+                reco_batch,
+                persistent_batch,
+                highfreq_batch,
+                noise_batch,
+            ) in val_loader:
                 raw_x = raw_x.to(device)
                 persistent_x = persistent_x.to(device)
                 topo_batch = topo_batch.to(device)
@@ -603,9 +663,15 @@ def train_how123(spec, x_train, y_train, t_train, x_val, y_val, t_val, x_test, y
                 persistent_batch = persistent_batch.to(device)
                 highfreq_batch = highfreq_batch.to(device)
                 noise_batch = noise_batch.to(device)
-                pred, gate, reco_hat, persistent_hat, highfreq_hat, noise_hat, topo_pred = model(
-                    raw_x, persistent_x, topo_batch, state_batch, time_batch
-                )
+                (
+                    pred,
+                    gate,
+                    reco_hat,
+                    persistent_hat,
+                    highfreq_hat,
+                    noise_hat,
+                    topo_pred,
+                ) = model(raw_x, persistent_x, topo_batch, state_batch, time_batch)
                 loss_pred = mse_loss(pred, y_batch)
                 loss_reco = mse_loss(reco_hat, reco_batch)
                 loss_persistent = mse_loss(persistent_hat, persistent_batch)
@@ -626,12 +692,20 @@ def train_how123(spec, x_train, y_train, t_train, x_val, y_val, t_val, x_test, y
         train_loss /= max(len(train_loader), 1)
         val_loss /= max(len(val_loader), 1)
         history_rows.append(
-            {"Model": "TDC", "Dataset": spec.name, "Epoch": epoch + 1, "Train_Loss": train_loss, "Val_Loss": val_loss}
+            {
+                "Model": "EXACT",
+                "Dataset": spec.name,
+                "Epoch": epoch + 1,
+                "Train_Loss": train_loss,
+                "Val_Loss": val_loss,
+            }
         )
 
         if val_loss < best_val - 1e-6:
             best_val = val_loss
-            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+            best_state = {
+                k: v.detach().cpu().clone() for k, v in model.state_dict().items()
+            }
             best_epoch = epoch + 1
             wait = 0
         else:
@@ -659,9 +733,11 @@ def train_how123(spec, x_train, y_train, t_train, x_val, y_val, t_val, x_test, y
     mse, rmse, mae, r2, mape = calculate_metrics(true_log_rv, pred_log_rv)
 
     return {
-        "Model": "TDC",
+        "Model": "EXACT",
         "Dataset": spec.name,
-        "Hyperparam_Profile": DATASET_HYPERPARAM_PROFILES.get(spec.name, ("base_v6b", {}))[0],
+        "Hyperparam_Profile": DATASET_HYPERPARAM_PROFILES.get(
+            spec.name, ("default", {})
+        )[0],
         "Train_Stride": spec.train_stride,
         "Test_Stride": spec.test_stride,
         "Best_Epoch": best_epoch,
@@ -689,9 +765,15 @@ def run_dataset(spec):
     train_scaled = scaler.fit_transform(train_raw).astype(np.float32)
     test_scaled = scaler.transform(test_raw).astype(np.float32)
 
-    x_train_full, y_train_full, _ = create_sequences(train_scaled, train_raw.index, SEQ_LEN, stride=spec.train_stride)
-    t_train_full = create_time_features(train_raw.index, SEQ_LEN, stride=spec.train_stride)
-    x_test, y_test, _ = create_sequences(test_scaled, test_raw.index, SEQ_LEN, stride=spec.test_stride)
+    x_train_full, y_train_full, _ = create_sequences(
+        train_scaled, train_raw.index, SEQ_LEN, stride=spec.train_stride
+    )
+    t_train_full = create_time_features(
+        train_raw.index, SEQ_LEN, stride=spec.train_stride
+    )
+    x_test, y_test, _ = create_sequences(
+        test_scaled, test_raw.index, SEQ_LEN, stride=spec.test_stride
+    )
     t_test = create_time_features(test_raw.index, SEQ_LEN, stride=spec.test_stride)
 
     val_size = max(1, int(len(x_train_full) * VAL_RATIO))
@@ -699,10 +781,20 @@ def run_dataset(spec):
     y_train, y_val = y_train_full[:-val_size], y_train_full[-val_size:]
     t_train, t_val = t_train_full[:-val_size], t_train_full[-val_size:]
 
-    how123_summary, how123_history = train_how123(
-        spec, x_train, y_train, t_train, x_val, y_val, t_val, x_test, y_test, t_test, scaler
+    exact_summary, exact_history = train_exact(
+        spec,
+        x_train,
+        y_train,
+        t_train,
+        x_val,
+        y_val,
+        t_val,
+        x_test,
+        y_test,
+        t_test,
+        scaler,
     )
-    return [how123_summary], how123_history
+    return [exact_summary], exact_history
 
 
 def format_float_columns(df, exclude=None):
